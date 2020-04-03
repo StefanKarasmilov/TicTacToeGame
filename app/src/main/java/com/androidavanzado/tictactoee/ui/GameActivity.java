@@ -1,11 +1,14 @@
 package com.androidavanzado.tictactoee.ui;
 
+import android.content.DialogInterface;
 import android.media.Image;
 import android.os.Bundle;
 
+import com.airbnb.lottie.LottieAnimationView;
 import com.androidavanzado.tictactoee.R;
 import com.androidavanzado.tictactoee.app.Constantes;
 import com.androidavanzado.tictactoee.model.Jugada;
+import com.androidavanzado.tictactoee.model.User;
 import com.google.android.gms.tasks.OnFailureListener;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
@@ -19,6 +22,7 @@ import com.google.firebase.firestore.FirebaseFirestoreException;
 import com.google.firebase.firestore.ListenerRegistration;
 
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 
@@ -40,10 +44,12 @@ public class GameActivity extends AppCompatActivity {
     TextView tvPlayer1, tvPlayer2;
     FirebaseAuth firebaseAuth;
     FirebaseFirestore db;
-    String uid, jugadaId, playerOneName = "", playerTwoName = "";
+    String uid, jugadaId, playerOneName = "", playerTwoName = "", ganadorId= "";
     Jugada jugada;
     ListenerRegistration listenerJugadas = null;
     FirebaseUser firebaseUser;
+    String nombreJugador;
+    User userPlayer1, userPlayer2;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -125,18 +131,18 @@ public class GameActivity extends AppCompatActivity {
                                 // Obtener los nombres de usuario de la partida
                                 getPlayerNames();
                             }
-                            
+
                             updateUI();
                         }
 
-                        cambioColorJugador();
+                        updatePlayersUI();
 
                     }
                 });
 
     }
 
-    private void cambioColorJugador() {
+    private void updatePlayersUI() {
 
         if (jugada.isTurnoJugadorUno()) {
             tvPlayer1.setTextColor(getResources().getColor(R.color.colorPrimary));
@@ -146,19 +152,24 @@ public class GameActivity extends AppCompatActivity {
             tvPlayer2.setTextColor(getResources().getColor(R.color.colorAccent));
         }
 
+        if(!jugada.getGanadorId().isEmpty()){
+            ganadorId = jugada.getGanadorId();
+            mostrarDialogoGameOver();
+        }
+
     }
 
     private void updateUI() {
 
-        for(int i = 0; i < 9; i++){
+        for (int i = 0; i < 9; i++) {
             int casilla = jugada.getCeldasSeleccionadas().get(i);
             ImageView ivCasillaActual = casillas.get(i);
 
-            if(casilla == 0){
+            if (casilla == 0) {
                 ivCasillaActual.setImageResource(R.drawable.ic_empty_square);
-            }else if(casilla == 1){
+            } else if (casilla == 1) {
                 ivCasillaActual.setImageResource(R.drawable.ic_player_one);
-            }else{
+            } else {
                 ivCasillaActual.setImageResource(R.drawable.ic_player_two);
             }
         }
@@ -174,8 +185,13 @@ public class GameActivity extends AppCompatActivity {
                 .addOnSuccessListener(GameActivity.this, new OnSuccessListener<DocumentSnapshot>() {
                     @Override
                     public void onSuccess(DocumentSnapshot documentSnapshot) {
+                        userPlayer1 = documentSnapshot.toObject(User.class);
                         playerOneName = documentSnapshot.get("name").toString();
                         tvPlayer1.setText(playerOneName);
+
+                        if(jugada.getJugadorUnoId().equals(uid)){
+                            nombreJugador = playerOneName;
+                        }
                     }
                 });
 
@@ -186,8 +202,13 @@ public class GameActivity extends AppCompatActivity {
                 .addOnSuccessListener(GameActivity.this, new OnSuccessListener<DocumentSnapshot>() {
                     @Override
                     public void onSuccess(DocumentSnapshot documentSnapshot) {
+                        userPlayer2 = documentSnapshot.toObject(User.class);
                         playerTwoName = documentSnapshot.get("name").toString();
                         tvPlayer2.setText(playerTwoName);
+
+                        if(jugada.getJugadorDosId().equals(uid)){
+                            nombreJugador = playerTwoName;
+                        }
                     }
                 });
 
@@ -234,8 +255,15 @@ public class GameActivity extends AppCompatActivity {
                 jugada.getCeldasSeleccionadas().set(posicionCasilla, 2);
             }
 
-
-            cambioTurno();
+            if (existeSolucion()) {
+                jugada.setGanadorId(uid);
+                //Toast.makeText(this, "Hay solución", Toast.LENGTH_SHORT).show();
+            } else if(existeEmpate()){
+                jugada.setGanadorId("EMPATE");
+                //Toast.makeText(this, "Hay empate", Toast.LENGTH_SHORT).show();
+            }else{
+                cambioTurno();
+            }
 
             // Actualizar en Firestore los datos de la jugada
             db.collection("jugadas")
@@ -259,10 +287,149 @@ public class GameActivity extends AppCompatActivity {
 
     private void cambioTurno() {
 
-
-
         // Cambio de turno
         jugada.setTurnoJugadorUno(!jugada.isTurnoJugadorUno());
+
+    }
+
+    private boolean existeEmpate(){
+
+        boolean existe = false;
+
+        // Empate
+        boolean hayCasillaLibre = false;
+        for(int i = 0; i < 9; i++){
+            if(jugada.getCeldasSeleccionadas().get(i) == 0){
+                hayCasillaLibre = true;
+                break;
+            }
+        }
+
+        if(!hayCasillaLibre){ // Empate
+            existe = true;
+        }
+
+        return existe;
+
+    }
+
+    private boolean existeSolucion() {
+        boolean existe = false;
+
+        List<Integer> selectedCells = jugada.getCeldasSeleccionadas();
+        if (selectedCells.get(0) == selectedCells.get(1)
+                && selectedCells.get(1) == selectedCells.get(2)
+                && selectedCells.get(2) != 0) { // 0 - 1 - 2
+            existe = true;
+        } else if (selectedCells.get(3) == selectedCells.get(4)
+                && selectedCells.get(4) == selectedCells.get(5)
+                && selectedCells.get(5) != 0) { // 3 - 4 - 5
+            existe = true;
+        } else if (selectedCells.get(6) == selectedCells.get(7)
+                && selectedCells.get(7) == selectedCells.get(8)
+                && selectedCells.get(8) != 0) { // 6 - 7 - 8
+            existe = true;
+        } else if (selectedCells.get(0) == selectedCells.get(3)
+                && selectedCells.get(3) == selectedCells.get(6)
+                && selectedCells.get(6) != 0) { // 0 - 3 - 6
+            existe = true;
+        } else if (selectedCells.get(1) == selectedCells.get(4)
+                && selectedCells.get(4) == selectedCells.get(7)
+                && selectedCells.get(7) != 0) { // 1 - 4 - 7
+            existe = true;
+        } else if (selectedCells.get(2) == selectedCells.get(5)
+                && selectedCells.get(5) == selectedCells.get(8)
+                && selectedCells.get(8) != 0) { // 2 - 5 - 8
+            existe = true;
+        } else if (selectedCells.get(0) == selectedCells.get(4)
+                && selectedCells.get(4) == selectedCells.get(8)
+                && selectedCells.get(8) != 0) { // 0 - 4 - 8
+            existe = true;
+        } else if (selectedCells.get(2) == selectedCells.get(4)
+                && selectedCells.get(4) == selectedCells.get(6)
+                && selectedCells.get(6) != 0) { // 2 - 4 - 6
+            existe = true;
+        }
+
+
+        return existe;
+
+    }
+
+    public void mostrarDialogoGameOver(){
+
+        // 1. Instantiate an <code><a href="/reference/android/app/AlertDialog.Builder.html">AlertDialog.Builder</a></code> with its constructor
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+
+        View v = getLayoutInflater().inflate(R.layout.dialogo_game_over, null);
+        // Obtenemos las referencias a los View components de nuestro layout
+        TextView tvPuntos = v.findViewById(R.id.textViewPuntos);
+        TextView tvInformacion = v.findViewById(R.id.textViewInformacion);
+        LottieAnimationView gameOverAnimation = v.findViewById(R.id.animation_view);
+
+        // 2. Chain together various setter methods to set the dialog characteristics
+        builder.setTitle("Game Over");
+        builder.setCancelable(false);
+        builder.setView(v);
+
+
+        if(ganadorId == "EMPATE"){
+            actualizarPuntuacion(1);
+            tvInformacion.setText("¡" + nombreJugador + " has empatado!");
+            tvPuntos.setText("+1 puntos");
+        }else if(ganadorId.equals(uid)){
+            actualizarPuntuacion(3);
+            tvInformacion.setText("¡" + nombreJugador + " has ganado!");
+            tvPuntos.setText("+3 puntos");
+        }else{
+            actualizarPuntuacion(0);
+            tvInformacion.setText("¡" + nombreJugador + " has perdido!");
+            tvPuntos.setText("0 puntos");
+            gameOverAnimation.setAnimation("thumbs_down_animation.json");
+        }
+
+        gameOverAnimation.playAnimation();
+
+        builder.setPositiveButton("Salir", new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int id) {
+                finish();
+            }
+        });
+
+        // 3. Get the <code><a href="/reference/android/app/AlertDialog.html">AlertDialog</a></code> from <code><a href="/reference/android/app/AlertDialog.Builder.html#create()">create()</a></code>
+        AlertDialog dialog = builder.create();
+        dialog.show();
+
+    }
+
+    private void actualizarPuntuacion(int puntosConsenidos) {
+
+        User jugadorActualizar = null;
+
+        if(nombreJugador.equals(userPlayer1.getName())){
+            userPlayer1.setPoints(userPlayer1.getPoints() + puntosConsenidos);
+            userPlayer2.setPartidasJugadas(userPlayer1.getPartidasJugadas() + 1);
+            jugadorActualizar = userPlayer1;
+        }else{
+            userPlayer2.setPoints(userPlayer2.getPoints() + puntosConsenidos);
+            userPlayer2.setPartidasJugadas(userPlayer2.getPartidasJugadas() + 1);
+            jugadorActualizar = userPlayer2;
+        }
+
+        db.collection("users")
+                .document(uid)
+                .set(jugadorActualizar)
+                .addOnSuccessListener(GameActivity.this, new OnSuccessListener<Void>() {
+                    @Override
+                    public void onSuccess(Void aVoid) {
+
+                    }
+                }).addOnFailureListener(GameActivity.this, new OnFailureListener() {
+            @Override
+            public void onFailure(@NonNull Exception e) {
+
+            }
+        });
 
     }
 
